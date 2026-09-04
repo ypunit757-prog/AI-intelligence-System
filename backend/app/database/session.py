@@ -11,24 +11,28 @@ settings = get_settings()
 
 
 def get_clean_database_url_and_connect_args():
-    """Strip provider-specific SSL query params from DATABASE_URL and
-    translate them into connect_args asyncmy actually understands.
+    """Normalize DATABASE_URL to the aiomysql driver and translate
+    provider SSL query params into connect_args it actually understands.
 
-    asyncmy's low-level connect() does not accept the "ssl-mode" query
-    parameter that managed providers like Aiven/PlanetScale append to
-    their connection strings (e.g. "...?ssl-mode=REQUIRED"). SQLAlchemy
-    passes unrecognized URL query params straight through as DBAPI
-    kwargs, which crashes asyncmy with "unexpected keyword argument
-    'ssl-mode'". This strips it from the URL and instead builds a real
-    SSL context passed via connect_args, the form asyncmy expects.
+    asyncmy has two separate bugs with managed MySQL providers like
+    Aiven/PlanetScale: it doesn't accept the "ssl-mode" URL query param
+    at all, and even once that's worked around, its SSL/TLS handshake
+    over the MySQL wire protocol fails with "Bad handshake" (1043)
+    against these providers. aiomysql (built on the more mature PyMySQL)
+    doesn't have either problem, so this forces the MySQL driver to
+    aiomysql regardless of what the DATABASE_URL literally says, and
+    builds the SSL context the same way ssl-mode semantics require.
     """
     url = make_url(settings.database_url)
+    if url.get_backend_name() == "mysql":
+        url = url.set(drivername="mysql+aiomysql")
+
     query = dict(url.query)
     ssl_mode = query.pop("ssl-mode", None) or query.pop("ssl_mode", None)
     url = url.set(query=query)
 
     connect_args = {}
-    if url.drivername == "mysql+asyncmy" and ssl_mode and ssl_mode.upper() != "DISABLED":
+    if url.drivername == "mysql+aiomysql" and ssl_mode and ssl_mode.upper() != "DISABLED":
         ctx = ssl.create_default_context()
         # "REQUIRED"/"PREFERRED" mean "encrypt the connection" only — they
         # explicitly do NOT require verifying the server's certificate
