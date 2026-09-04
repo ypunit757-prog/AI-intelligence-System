@@ -70,6 +70,7 @@ docker-compose.override.yml
 Thumbs.db
 .vscode/
 .idea/
-*.swpbackend/data/faiss/
+*.swp
 
 backend/data/faiss/
+backend/.python-version
