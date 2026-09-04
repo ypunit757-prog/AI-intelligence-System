@@ -8,13 +8,15 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from app.config.settings import get_settings
 from app.database.models import Base  # noqa: F401 — ensures models are registered on Base.metadata
 from app.database.session import Base as SessionBase
+from app.database.session import get_clean_database_url_and_connect_args
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
+_clean_url, _connect_args = get_clean_database_url_and_connect_args()
+config.set_main_option("sqlalchemy.url", str(_clean_url).replace("%", "%%"))
 
 target_metadata = SessionBase.metadata
 
@@ -33,7 +35,12 @@ def do_run_migrations(connection) -> None:
 
 
 async def run_migrations_online() -> None:
-    connectable = async_engine_from_config(config.get_section(config.config_ini_section), prefix="sqlalchemy.", poolclass=pool.NullPool)
+    connectable = async_engine_from_config(
+        config.get_section(config.config_ini_section),
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+        connect_args=_connect_args,
+    )
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)
     await connectable.dispose()

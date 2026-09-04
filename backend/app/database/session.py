@@ -1,5 +1,7 @@
+import ssl
 from typing import AsyncIterator
 
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -7,7 +9,33 @@ from app.config.settings import get_settings
 
 settings = get_settings()
 
-engine = create_async_engine(settings.database_url, pool_pre_ping=True, future=True)
+
+def get_clean_database_url_and_connect_args():
+    """Strip provider-specific SSL query params from DATABASE_URL and
+    translate them into connect_args asyncmy actually understands.
+
+    asyncmy's low-level connect() does not accept the "ssl-mode" query
+    parameter that managed providers like Aiven/PlanetScale append to
+    their connection strings (e.g. "...?ssl-mode=REQUIRED"). SQLAlchemy
+    passes unrecognized URL query params straight through as DBAPI
+    kwargs, which crashes asyncmy with "unexpected keyword argument
+    'ssl-mode'". This strips it from the URL and instead builds a real
+    SSL context passed via connect_args, the form asyncmy expects.
+    """
+    url = make_url(settings.database_url)
+    query = dict(url.query)
+    ssl_mode = query.pop("ssl-mode", None) or query.pop("ssl_mode", None)
+    url = url.set(query=query)
+
+    connect_args = {}
+    if url.drivername == "mysql+asyncmy" and ssl_mode and ssl_mode.upper() != "DISABLED":
+        connect_args["ssl"] = ssl.create_default_context()
+
+    return url, connect_args
+
+
+_url, _connect_args = get_clean_database_url_and_connect_args()
+engine = create_async_engine(_url, pool_pre_ping=True, future=True, connect_args=_connect_args)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 
