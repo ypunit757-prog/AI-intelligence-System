@@ -29,7 +29,17 @@ def get_clean_database_url_and_connect_args():
 
     connect_args = {}
     if url.drivername == "mysql+asyncmy" and ssl_mode and ssl_mode.upper() != "DISABLED":
-        connect_args["ssl"] = ssl.create_default_context()
+        ctx = ssl.create_default_context()
+        # "REQUIRED"/"PREFERRED" mean "encrypt the connection" only — they
+        # explicitly do NOT require verifying the server's certificate
+        # against a trusted CA (that's what VERIFY_CA/VERIFY_IDENTITY are
+        # for). Managed providers like Aiven use a self-signed CA that
+        # isn't in the system trust store, so full verification would
+        # reject a legitimate connection under ssl-mode=REQUIRED.
+        if ssl_mode.upper() in ("REQUIRED", "PREFERRED"):
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+        connect_args["ssl"] = ctx
 
     return url, connect_args
 
