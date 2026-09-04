@@ -70,4 +70,4 @@ docker-compose.override.yml
 Thumbs.db
 .vscode/
 .idea/
-*.swp
+*.swpbackend/data/faiss/
