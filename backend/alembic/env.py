@@ -1,68 +1,52 @@
-import ssl
-from typing import AsyncIterator
+import asyncio
+from logging.config import fileConfig
 
-from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import DeclarativeBase
+from alembic import context
+from sqlalchemy import pool
+from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.config.settings import get_settings
+from app.database.models import Base  # noqa: F401 — ensures models are registered on Base.metadata
+from app.database.session import Base as SessionBase
+from app.database.session import get_clean_database_url_and_connect_args
+
+config = context.config
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
 
 settings = get_settings()
+_clean_url, _connect_args = get_clean_database_url_and_connect_args()
+config.set_main_option("sqlalchemy.url", _clean_url.render_as_string(hide_password=False).replace("%", "%%"))
+
+target_metadata = SessionBase.metadata
 
 
-def get_clean_database_url_and_connect_args():
-    """Normalize DATABASE_URL to the asyncpg driver and translate
-    sslmode into connect_args it actually understands.
-
-    asyncpg's low-level connect() does not accept a "sslmode" keyword
-    argument the way psycopg2 does — SQLAlchemy's asyncpg dialect passes
-    unrecognized URL query params straight through as DBAPI kwargs,
-    which crashes with "unexpected keyword argument 'sslmode'". This
-    strips it from the URL and instead builds the connect_args asyncpg
-    expects (a bool or an ssl.SSLContext).
-
-    It also follows real libpq sslmode semantics: "require"/"prefer"/
-    "allow" mean "encrypt the connection" only — they explicitly do NOT
-    verify the server's certificate against a trusted CA (that's what
-    "verify-ca"/"verify-full" are for). Supabase's Postgres uses a
-    publicly-trusted certificate, so verify-full works out of the box;
-    "require" is kept available for any provider using a private/
-    self-signed CA, matching the same fix already applied for MySQL.
-    """
-    url = make_url(settings.database_url)
-    if url.get_backend_name() == "postgresql":
-        url = url.set(drivername="postgresql+asyncpg")
-
-    query = dict(url.query)
-    ssl_mode = query.pop("sslmode", None) or query.pop("ssl-mode", None)
-    url = url.set(query=query)
-
-    connect_args = {}
-    if url.drivername == "postgresql+asyncpg" and ssl_mode and ssl_mode.lower() != "disable":
-        if ssl_mode.lower() in ("verify-ca", "verify-full"):
-            connect_args["ssl"] = ssl.create_default_context()
-        else:
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            connect_args["ssl"] = ctx
-
-    return url, connect_args
+def run_migrations_offline() -> None:
+    url = config.get_main_option("sqlalchemy.url")
+    context.configure(url=url, target_metadata=target_metadata, literal_binds=True)
+    with context.begin_transaction():
+        context.run_migrations()
 
 
-_url, _connect_args = get_clean_database_url_and_connect_args()
-engine = create_async_engine(_url, pool_pre_ping=True, future=True, connect_args=_connect_args)
-AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+def do_run_migrations(connection) -> None:
+    context.configure(connection=connection, target_metadata=target_metadata)
+    with context.begin_transaction():
+        context.run_migrations()
 
 
-class Base(DeclarativeBase):
-    pass
+async def run_migrations_online() -> None:
+    connectable = async_engine_from_config(
+        config.get_section(config.config_ini_section),
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+        connect_args=_connect_args,
+    )
+    async with connectable.connect() as connection:
+        await connection.run_sync(do_run_migrations)
+    await connectable.dispose()
 
 
-async def get_db() -> AsyncIterator[AsyncSession]:
-    """FastAPI dependency yielding a scoped async session."""
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    asyncio.run(run_migrations_online())

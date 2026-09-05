@@ -11,39 +11,41 @@ settings = get_settings()
 
 
 def get_clean_database_url_and_connect_args():
-    """Normalize DATABASE_URL to the aiomysql driver and translate
-    provider SSL query params into connect_args it actually understands.
+    """Normalize DATABASE_URL to the asyncpg driver and translate
+    sslmode into connect_args it actually understands.
 
-    asyncmy has two separate bugs with managed MySQL providers like
-    Aiven/PlanetScale: it doesn't accept the "ssl-mode" URL query param
-    at all, and even once that's worked around, its SSL/TLS handshake
-    over the MySQL wire protocol fails with "Bad handshake" (1043)
-    against these providers. aiomysql (built on the more mature PyMySQL)
-    doesn't have either problem, so this forces the MySQL driver to
-    aiomysql regardless of what the DATABASE_URL literally says, and
-    builds the SSL context the same way ssl-mode semantics require.
+    asyncpg's low-level connect() does not accept a "sslmode" keyword
+    argument the way psycopg2 does — SQLAlchemy's asyncpg dialect passes
+    unrecognized URL query params straight through as DBAPI kwargs,
+    which crashes with "unexpected keyword argument 'sslmode'". This
+    strips it from the URL and instead builds the connect_args asyncpg
+    expects (a bool or an ssl.SSLContext).
+
+    It also follows real libpq sslmode semantics: "require"/"prefer"/
+    "allow" mean "encrypt the connection" only — they explicitly do NOT
+    verify the server's certificate against a trusted CA (that's what
+    "verify-ca"/"verify-full" are for). Supabase's Postgres uses a
+    publicly-trusted certificate, so verify-full works out of the box;
+    "require" is kept available for any provider using a private/
+    self-signed CA, matching the same fix already applied for MySQL.
     """
     url = make_url(settings.database_url)
-    if url.get_backend_name() == "mysql":
-        url = url.set(drivername="mysql+aiomysql")
+    if url.get_backend_name() == "postgresql":
+        url = url.set(drivername="postgresql+asyncpg")
 
     query = dict(url.query)
-    ssl_mode = query.pop("ssl-mode", None) or query.pop("ssl_mode", None)
+    ssl_mode = query.pop("sslmode", None) or query.pop("ssl-mode", None)
     url = url.set(query=query)
 
     connect_args = {}
-    if url.drivername == "mysql+aiomysql" and ssl_mode and ssl_mode.upper() != "DISABLED":
-        ctx = ssl.create_default_context()
-        # "REQUIRED"/"PREFERRED" mean "encrypt the connection" only — they
-        # explicitly do NOT require verifying the server's certificate
-        # against a trusted CA (that's what VERIFY_CA/VERIFY_IDENTITY are
-        # for). Managed providers like Aiven use a self-signed CA that
-        # isn't in the system trust store, so full verification would
-        # reject a legitimate connection under ssl-mode=REQUIRED.
-        if ssl_mode.upper() in ("REQUIRED", "PREFERRED"):
+    if url.drivername == "postgresql+asyncpg" and ssl_mode and ssl_mode.lower() != "disable":
+        if ssl_mode.lower() in ("verify-ca", "verify-full"):
+            connect_args["ssl"] = ssl.create_default_context()
+        else:
+            ctx = ssl.create_default_context()
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
-        connect_args["ssl"] = ctx
+            connect_args["ssl"] = ctx
 
     return url, connect_args
 
