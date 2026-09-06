@@ -37,7 +37,13 @@ class Settings(BaseSettings):
     ollama_base_url: str = Field("http://localhost:11434", alias="OLLAMA_BASE_URL")
 
     # --- Embeddings / RAG ---
-    embedding_model: str = Field("sentence-transformers/all-MiniLM-L6-v2", alias="EMBEDDING_MODEL")
+    # "gemini" avoids importing sentence-transformers/torch at all, which
+    # is the single largest RAM cost in this app — needed to fit inside
+    # Render's 512MB tiers. Set to "local" only on a host with enough RAM
+    # (2GB+) and sentence-transformers reinstalled in requirements.txt.
+    embedding_provider: Literal["local", "gemini"] = Field("gemini", alias="EMBEDDING_PROVIDER")
+    embedding_model: str = Field("text-embedding-004", alias="EMBEDDING_MODEL")
+    embedding_dimension: int = Field(768, alias="EMBEDDING_DIMENSION")
     chunk_size: int = Field(800, alias="CHUNK_SIZE")
     chunk_overlap: int = Field(120, alias="CHUNK_OVERLAP")
     top_k: int = Field(5, alias="TOP_K")

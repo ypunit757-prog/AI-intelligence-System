@@ -4,7 +4,7 @@ upload -> validate -> store -> extract -> clean -> chunk -> metadata -> embed ->
 import re
 import uuid
 
-from app.ai.embeddings.sentence_transformer_embeddings import get_embedding_model
+from app.ai.retrieval.factory import get_embedding_model
 from app.ai.rag.chunking import chunk_text
 from app.ai.rag.document_loader import ALLOWED_EXTENSIONS, MAX_FILE_SIZE_BYTES, extract_text
 from app.ai.retrieval.factory import get_vector_store

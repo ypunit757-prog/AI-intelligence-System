@@ -6,7 +6,7 @@ Query -> classify -> rewrite -> retrieve (hybrid) -> rerank
 from dataclasses import dataclass, field
 from typing import AsyncIterator, List
 
-from app.ai.embeddings.sentence_transformer_embeddings import get_embedding_model
+from app.ai.retrieval.factory import get_embedding_model
 from app.ai.llm.factory import get_llm
 from app.ai.llm.interface import ChatMessage
 from app.ai.prompts.rag_prompts import SYSTEM_PROMPT, build_user_prompt

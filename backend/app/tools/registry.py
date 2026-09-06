@@ -35,8 +35,8 @@ class DocumentSearchInput(BaseModel):
 
 
 async def document_search_tool(input: DocumentSearchInput, user_id: str) -> dict:
-    from app.ai.embeddings.sentence_transformer_embeddings import get_embedding_model
-    from app.ai.retrieval.factory import get_vector_store
+    from app.ai.retrieval.factory import get_embedding_model, get_vector_store
+    
 
     embedder = get_embedding_model()
     store = get_vector_store()
