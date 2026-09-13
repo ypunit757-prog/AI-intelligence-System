@@ -10,6 +10,7 @@ from typing import List, Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+RETRIEVAL_MODE: str = "hybrid" 
 
 
 class Settings(BaseSettings):
