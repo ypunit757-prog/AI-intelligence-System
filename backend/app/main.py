@@ -10,6 +10,14 @@ from app.utils.errors import unhandled_exception_handler
 settings = get_settings()
 configure_logging(settings.app_env)
 
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 app = FastAPI(title="AI Knowledge Intelligence Platform", version="0.1.0")
 
 # CORS: strictly environment-driven, never "*" in production.
